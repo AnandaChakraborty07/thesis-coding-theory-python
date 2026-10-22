@@ -1,14 +1,6 @@
 
-#!/usr/bin/env python3
 """
 Complete Joint Weight Enumerator (CJWE) of linear codes over F_q.
-
-Generator matrix input:
-    [[1, 0, 1], [0, 1, 1]]
-
-Field elements are encoded by integers 0, ..., q-1.
-For q = p^m with m > 1, the encoding represents polynomial
-coefficients over F_p modulo an irreducible polynomial.
 """
 
 import sys
@@ -18,7 +10,7 @@ from collections import Counter
 
 
 # ============================================================
-# FINITE FIELD F_q
+# 1. FINITE FIELD F_q
 # ============================================================
 
 def prime_power(q):
@@ -51,7 +43,8 @@ def poly_mod(a, f, p):
                     a[i - degree + j] - c * f[j]
                 ) % p
 
-    return [x % p for x in a[:degree]]
+    remainder = [x % p for x in a[:degree]]
+    return remainder + [0] * (degree - len(remainder))
 
 
 def is_irreducible(f, p):
@@ -117,7 +110,6 @@ class GF:
 
             representations = [digits(a) for a in range(q)]
 
-            # Addition table.
             self.add = [
                 [
                     encode([
@@ -132,7 +124,6 @@ class GF:
                 for a in range(q)
             ]
 
-            # Multiplication table.
             def multiply_poly(a, b):
                 A = representations[a]
                 B = representations[b]
@@ -151,20 +142,15 @@ class GF:
                 return encode(poly_mod(result, f, p))
 
             self.mul = [
-                [
-                    multiply_poly(a, b)
-                    for b in range(q)
-                ]
+                [multiply_poly(a, b) for b in range(q)]
                 for a in range(q)
             ]
 
-        # Additive inverses.
         self.neg = [
             next(b for b in range(q) if self.add[a][b] == 0)
             for a in range(q)
         ]
 
-        # Multiplicative inverses; inverse of zero is undefined.
         self.inv = [None] * q
 
         for a in range(1, q):
@@ -184,121 +170,45 @@ class GF:
         )
 
         return (
-            f"F_{self.q} = F_{self.p}[t]/({terms}). "
-            f"Elements are encoded by integers 0,...,{self.q - 1}."
+            f"F_{self.q} = F_{self.p}[t]/({terms}), "
+            "where t is a root of this polynomial"
         )
 
+    def element_name(self, x):
+        """Readable name of element x, e.g. 0, 1, t, t+1, 2t+1."""
+        if self.m == 1:
+            return str(x)
 
-# ============================================================
-# INPUT HELPERS
-# ============================================================
+        digits = [(x // (self.p ** i)) % self.p for i in range(self.m)]
+        parts = []
 
-def ask_int(prompt, lo=None, hi=None):
-    while True:
-        try:
-            value = int(input(prompt).strip())
+        for i in range(self.m - 1, -1, -1):
+            c = digits[i]
 
-            if (
-                (lo is None or value >= lo)
-                and (hi is None or value <= hi)
-            ):
-                return value
+            if c == 0:
+                continue
+            if i == 0:
+                parts.append(str(c))
+            elif i == 1:
+                parts.append("t" if c == 1 else f"{c}t")
+            else:
+                parts.append(f"t^{i}" if c == 1 else f"{c}t^{i}")
 
-        except ValueError:
-            pass
-
-        print("Invalid input. Please try again.")
-
-
-def ask_field():
-    while True:
-        q = ask_int(
-            "Field size q (e.g. 2, 3, 4, 5, 7, 8, 9): ",
-            2
-        )
-
-        try:
-            F = GF(q)
-            print(" ", F.describe())
-            return F
-
-        except ValueError as error:
-            print(" ", error)
-
-
-def ask_generator_matrix(F, n, label):
-    q = F.q
-
-    k = ask_int(
-        f"\n[{label}] Number of rows k: ",
-        1
-    )
-
-    print("\nGenerator matrix input format")
-    print("-----------------------------")
-    print(f"Enter a list containing exactly {k} rows.")
-    print(f"Each row must contain exactly {n} entries.")
-    print(f"Entries must be integers from 0 to {q - 1}.")
-    print("\nExample:")
-    print("  [[1, 0, 1], [0, 1, 1]]")
-    print("\nEnter the entire matrix on one line.")
-
-    while True:
-        try:
-            G = ast.literal_eval(
-                input(f"\n[{label}] Enter G: ").strip()
-            )
-
-            if not isinstance(G, list) or len(G) != k:
-                raise ValueError(
-                    f"G must contain exactly {k} rows."
-                )
-
-            for i, row in enumerate(G):
-                if not isinstance(row, list) or len(row) != n:
-                    raise ValueError(
-                        f"Row {i + 1} must contain exactly {n} entries."
-                    )
-
-                if any(
-                    type(x) is not int or not 0 <= x < q
-                    for x in row
-                ):
-                    raise ValueError(
-                        f"Every entry must be an integer "
-                        f"from 0 to {q - 1}."
-                    )
-
-            print("\nAccepted generator matrix:")
-            for row in G:
-                print(" ", row)
-
-            return G
-
-        except (ValueError, SyntaxError, TypeError) as error:
-            print("Invalid matrix:", error)
-            print("Example: [[1, 0, 1], [0, 1, 1]]")
+        return "+".join(parts) if parts else "0"
 
 
 # ============================================================
-# GAUSSIAN ELIMINATION OVER F_q
+# 2. LINEAR ALGEBRA AND CODEWORDS
 # ============================================================
 
 def row_basis(F, G, n):
-    """
-    Return independent rows spanning the same code as G.
-
-    Uses Gaussian elimination over the actual finite field.
-    """
-    A = [row[:] for row in G]
+    """Return independent rows spanning the same code as G."""
+    A = [list(row) for row in G]
     rank = 0
 
     for col in range(n):
         pivot = next(
-            (
-                i for i in range(rank, len(A))
-                if A[i][col] != 0
-            ),
+            (i for i in range(rank, len(A)) if A[i][col] != 0),
             None
         )
 
@@ -307,17 +217,10 @@ def row_basis(F, G, n):
 
         A[rank], A[pivot] = A[pivot], A[rank]
 
-        # Normalize pivot to 1.
         inverse = F.inv[A[rank][col]]
-
-        A[rank] = [
-            F.mul[inverse][x]
-            for x in A[rank]
-        ]
-
+        A[rank] = [F.mul[inverse][x] for x in A[rank]]
         pivot_row = A[rank]
 
-        # Eliminate entries below the pivot.
         for i in range(rank + 1, len(A)):
             factor = A[i][col]
 
@@ -339,14 +242,9 @@ def row_basis(F, G, n):
     return A[:rank]
 
 
-# ============================================================
-# CODEWORD GENERATION
-# ============================================================
-
 def span(F, basis, n):
     """
     Generate each codeword exactly once from an independent basis.
-
     Number of codewords = q^rank.
     """
     codewords = [tuple([0] * n)]
@@ -354,7 +252,6 @@ def span(F, basis, n):
     for row in basis:
         old_words = codewords
 
-        # Precompute scalar multiples of the current basis row.
         scaled_rows = [
             tuple(F.mul[c][x] for x in row)
             for c in range(1, F.q)
@@ -377,24 +274,21 @@ def span(F, basis, n):
 
 
 # ============================================================
-# COMPLETE JOINT WEIGHT ENUMERATOR
+# 3. COMPLETE JOINT WEIGHT ENUMERATOR
 # ============================================================
 
 def cjwe(F, c1, c2):
     """
     Compute CJWE(C1, C2).
 
-    The exponent of x[a,b] counts positions where u_i=a, v_i=b.
+    The exponent of x[a,b] counts positions where u_i = a and v_i = b.
     """
     q = F.q
-    q_squared = q * q
     cnt = Counter()
 
-    # Cache flattened pair-symbol indices for faster counting.
-    # Each pair (a,b) is represented by a*q + b.
     for u in c1:
         for v in c2:
-            counts = [0] * q_squared
+            counts = [0] * (q * q)
 
             for a, b in zip(u, v):
                 counts[a * q + b] += 1
@@ -405,25 +299,212 @@ def cjwe(F, c1, c2):
 
 
 # ============================================================
-# POLYNOMIAL OUTPUT
+# 4. USER-FRIENDLY INPUT
 # ============================================================
 
+QUIT_WORDS = {"quit", "exit"}
+
+
+def read_line(prompt):
+    """input() that lets the user type 'quit' or 'exit' at any prompt."""
+    text = input(prompt).strip()
+
+    if text.lower() in QUIT_WORDS:
+        raise EOFError
+
+    return text
+
+
+def ask_int(prompt, lo=None, hi=None):
+    while True:
+        text = read_line(prompt)
+
+        try:
+            value = int(text)
+        except ValueError:
+            print("  Please enter a whole number.")
+            continue
+
+        if lo is not None and value < lo:
+            print(f"  The number must be at least {lo}.")
+        elif hi is not None and value > hi:
+            print(f"  The number must be at most {hi}.")
+        else:
+            return value
+
+
+def ask_field():
+    print("STEP 1: the finite field F_q")
+    print("  q must be a prime power: 2, 3, 4, 5, 7, 8, 9, 11, 13, 16, ...")
+
+    while True:
+        q = ask_int("  Field size q: ", 2)
+
+        try:
+            F = GF(q)
+        except ValueError:
+            print(f"  {q} is not a prime power. Try again.")
+            continue
+
+        print(" ", F.describe())
+
+        if F.m > 1:
+            print("  Enter field elements as the numbers 0,...,"
+                  f"{q - 1}. They stand for:")
+
+            for x in range(q):
+                print(f"    {x:>3}  <->  {F.element_name(x)}")
+
+        return F
+
+
+def parse_row(text, n, q):
+    """
+    Parse one matrix row. Accepted styles:
+        1 0 1        1,0,1        [1, 0, 1]        101  (only when q <= 10)
+    """
+    cleaned = text.strip().strip("[]()").strip()
+
+    if "," in cleaned or " " in cleaned:
+        tokens = cleaned.replace(",", " ").split()
+    elif q <= 10 and len(cleaned) == n:
+        tokens = list(cleaned)
+    else:
+        tokens = cleaned.split()
+
+    try:
+        row = [int(t) for t in tokens]
+    except ValueError:
+        raise ValueError("a row may only contain whole numbers.")
+
+    if len(row) != n:
+        raise ValueError(f"expected {n} entries but got {len(row)}.")
+
+    bad = [x for x in row if not 0 <= x < q]
+    if bad:
+        raise ValueError(
+            f"entries must be between 0 and {q - 1}; found {bad[0]}."
+        )
+
+    return row
+
+
+def parse_whole_matrix(text, k, n, q):
+    """Parse a pasted list of lists such as [[1,0,1],[0,1,1]]."""
+    try:
+        G = ast.literal_eval(text)
+    except (ValueError, SyntaxError):
+        raise ValueError("could not read that as a list of lists.")
+
+    if not isinstance(G, (list, tuple)) or len(G) != k:
+        raise ValueError(f"expected {k} rows.")
+
+    return [parse_row(str(list(row)), n, q) for row in G]
+
+
+def print_matrix(F, G):
+    cells = [
+        [F.element_name(x) if F.m > 1 else str(x) for x in row]
+        for row in G
+    ]
+    width = max((len(c) for row in cells for c in row), default=1)
+
+    for row in cells:
+        print("    [ " + "  ".join(c.rjust(width) for c in row) + " ]")
+
+
+def ask_generator_matrix(F, n, label):
+    q = F.q
+
+    print(f"\n  Generator matrix of {label}")
+
+    while True:
+        k = ask_int(f"  Number of rows of G for {label}: ", 1)
+
+        print(f"  Enter the {k} rows one at a time, each with {n} entries "
+              f"from 0 to {q - 1}.")
+        print("  Examples:  1 0 1     or     1,0,1     "
+              + ("or     101" if q <= 10 else ""))
+        print("  (Or paste the whole matrix at once, e.g. [[1,0,1],[0,1,1]])")
+
+        G = []
+        i = 0
+
+        while i < k:
+            text = read_line(f"    Row {i + 1} of {k}: ")
+
+            try:
+                if i == 0 and text.startswith("[["):
+                    G = parse_whole_matrix(text, k, n, q)
+                    break
+
+                G.append(parse_row(text, n, q))
+                i += 1
+
+            except ValueError as error:
+                print(f"    Problem: {error} Please re-enter this row.")
+
+        rank = len(row_basis(F, G, n))
+
+        if rank == 0:
+            print("  Invalid matrix: every row is zero, so the code has "
+                  "no nonzero words. Please enter the matrix again.\n")
+            continue
+
+        print(f"\n  {label} generator matrix ({k} x {n}) accepted:")
+        print_matrix(F, G)
+
+        if rank < k:
+            print(f"  Note: the rows are linearly dependent; "
+                  f"the code has dimension {rank}, not {k}. "
+                  "Dependent rows are removed automatically.")
+
+        return G
+
+
+# ============================================================
+# 5. POLYNOMIAL DISPLAY  (subscripts and powers, e.g. x₀₀² + 2x₀₀x₁₁)
+# ============================================================
+
+SUBSCRIPT = str.maketrans("0123456789,", "₀₁₂₃₄₅₆₇₈₉,")
+SUPERSCRIPT = str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹")
+
+
+def make_variables(q):
+    """
+    Variable names for the q*q symbol pairs (a,b).
+    For q <= 10 the index is two digits (x₀₀, x₁₂, ...); for q > 10 the two
+    numbers are separated by a comma and bracketed: x₍₁₀,₁₁₎.
+    """
+    sep = "" if q <= 10 else ","
+    names = []
+
+    for a in range(q):
+        for b in range(q):
+            sub = f"{a}{sep}{b}".translate(SUBSCRIPT)
+
+            if q > 10:
+                sub = "₍" + sub + "₎"
+
+            names.append("x" + sub)
+
+    return names
+
+
 def mono(variables, exponents):
+    """Monomial as a string, e.g. x₀₀²x₁₁.  Returns '1' if empty."""
     parts = []
 
     for variable, exponent in zip(variables, exponents):
         if exponent == 1:
             parts.append(variable)
         elif exponent > 1:
-            parts.append(f"{variable}^{exponent}")
+            parts.append(variable + str(exponent).translate(SUPERSCRIPT))
 
-    return "*".join(parts) if parts else "1"
+    return "".join(parts) if parts else "1"
 
 
 def show_poly(table, variables, title):
-    print(f"\n{title}")
-    print("-" * len(title))
-
     terms = []
 
     for exponents in sorted(table, reverse=True):
@@ -436,75 +517,95 @@ def show_poly(table, variables, title):
 
         if monomial == "1":
             terms.append(str(coefficient))
+        elif coefficient == 1:
+            terms.append(monomial)
         else:
-            terms.append(f"{coefficient}*{monomial}")
+            terms.append(f"{coefficient}{monomial}")
 
+    print(f"\n{title}")
+    print("-" * len(title))
     print(" + ".join(terms) if terms else "0")
-    print(f"\nNumber of terms = {len(terms)}")
+    print(f"\n#terms = {len(terms)}")
     print(f"Sum of coefficients = {sum(table.values())}")
 
 
 # ============================================================
-# MAIN PROGRAM
+# 6. MAIN PROGRAM
 # ============================================================
 
+def banner():
+    print("=" * 60)
+    print("  Complete Joint Weight Enumerator (CJWE)")
+    print("=" * 60)
+    print("You will be asked for:")
+    print("  1. the field size q,")
+    print("  2. the common code length n,")
+    print("  3. the number of codes and a generator matrix for each.")
+    print("The CJWE of every pair of codes is then printed.")
+    print("Type 'quit' at any prompt to leave.\n")
+
+
 def program_cjwe():
-    print("\n=== Complete Joint Weight Enumerator ===")
+    banner()
 
     F = ask_field()
-    n = ask_int("Common length n: ", 1)
+    q = F.q
 
-    num = ask_int(
-        "Number of codes (at least 2; all pairs are processed): ",
-        2
-    )
+    print("\nSTEP 2: the code length")
+    n = ask_int("  Common code length n: ", 1)
+
+    print("\nSTEP 3: the codes")
+    num = ask_int("  Number of codes (at least 2): ", 2)
 
     codes = []
 
     for i in range(1, num + 1):
-        G = ask_generator_matrix(F, n, f"code {i}")
-
+        G = ask_generator_matrix(F, n, f"C{i}")
         basis = row_basis(F, G, n)
-        rank = len(basis)
-
         code = span(F, basis, n)
         codes.append(code)
 
-        print(f"\nCode C{i}:")
-        print(f"  Rank/dimension = {rank}")
-        print(f"  Number of codewords = {len(code)}")
-        print(f"  Expected size q^rank = {F.q ** rank}")
+        print(f"  C{i}: dimension {len(basis)}, {len(code)} codewords")
 
-    q = F.q
-
-    variables = [
-        f"x[{a},{b}]"
-        for a in range(q)
-        for b in range(q)
-    ]
+    variables = make_variables(q)
 
     for i in range(num):
         for j in range(i + 1, num):
+            pairs = len(codes[i]) * len(codes[j])
+
+            if pairs > 5_000_000:
+                print(f"\nWarning: (C{i + 1}, C{j + 1}) needs {pairs:,} "
+                      "word pairs. This may take a long time.")
+
+            print(f"\nComputing CJWE of (C{i + 1}, C{j + 1}) ...")
+
             result = cjwe(F, codes[i], codes[j])
 
             show_poly(
                 result,
                 variables,
-                f"CJWE of (C{i + 1}, C{j + 1}) "
-                f"(x[a,b] counts positions with symbols a,b)"
+                f"CJWE of (C{i + 1}, C{j + 1})"
             )
+            print("(x with subscript ab = number of positions where the "
+                  "first word has a and the second has b)")
 
-            expected_sum = len(codes[i]) * len(codes[j])
+            actual_sum = sum(result.values())
 
-            if sum(result.values()) != expected_sum:
-                raise RuntimeError(
-                    "CJWE verification failed: coefficient sum is incorrect."
-                )
+            print(f"\nExpected coefficient sum = {pairs}")
+            print(f"Actual coefficient sum   = {actual_sum}")
+            print("Coefficient-sum check:",
+                  "PASSED" if actual_sum == pairs else "FAILED")
 
 
 if __name__ == "__main__":
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):
+            pass
+
     try:
         program_cjwe()
     except (EOFError, KeyboardInterrupt):
-        print("\nProgram terminated.")
+        print("\nGoodbye.")
         sys.exit(0)
